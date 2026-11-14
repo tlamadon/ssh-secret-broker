@@ -1,0 +1,23 @@
+listen: ":2222"
+host_key: /run/secrets/host_key
+
+# Mode 1: user certificates signed by one of these CAs. Principals come from the cert.
+trusted_cas:
+  - "ssh-ed25519 AAAA...REPLACE_WITH_CA_PUBLIC_KEY"
+
+# Mode 2: plain keys, mapped to principals here. Get the fingerprint with `ssh-keygen -lf key.pub`.
+whitelist:
+  - fingerprint: "SHA256:REPLACE_WITH_KEY_FINGERPRINT"
+    principals: [ci-deploy]
+
+# Default deny. A request passes if one rule matches a principal of the caller, the
+# vault, the verb, and at least one tag of the item.
+rules:
+  - principals: [ci-deploy, ops]
+    vault: prod
+    tags: [deploy]
+    access: [list, read]
+  - principals: [ops]
+    vault: prod
+    tags: [deploy, db]
+    access: [list, read, write]
