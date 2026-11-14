@@ -32,16 +32,22 @@ to apply changes.
 
 ## Running
 
+Images for `linux/amd64` and `linux/arm64` are built by GitHub Actions and
+published to `ghcr.io/tlamadon/ssh-secret-broker`: `latest` follows `main`,
+`sha-<commit>` pins a commit, and pushing a `v1.2.3` tag publishes `1.2.3` and
+`1.2`.
+
 ```sh
-docker build -t ssh-secret-broker .
 ssh-keygen -t ed25519 -N "" -f host_key
 
 docker run -d --read-only --cap-drop ALL -p 2222:2222 \
   -e OP_SERVICE_ACCOUNT_TOKEN \
   -v ./config.yaml:/etc/ssh-secret-broker/config.yaml:ro \
   -v ./host_key:/run/secrets/host_key:ro \
-  ssh-secret-broker
+  ghcr.io/tlamadon/ssh-secret-broker:latest
 ```
+
+To build locally instead: `docker build -t ssh-secret-broker .`
 
 The container runs as uid 65532, so the host key must be readable by that user.
 The token can also come from a file via `OP_SERVICE_ACCOUNT_TOKEN_FILE`.
