@@ -68,6 +68,53 @@ ssh-keygen -s ca -I alice@laptop -n ops,ci-deploy -V +8h -z 1 \
 log, `-O source-address` is optional and enforced. Certificates carrying any
 other critical option, such as `force-command`, are rejected.
 
+## NixOS client
+
+The flake exports a NixOS module that builds files from secrets and puts them
+where services already read them. Each host authenticates with its SSH host key,
+so whitelist its fingerprint (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`)
+and give that principal a `read` rule.
+
+```nix
+{
+  inputs.ssh-secret-broker.url = "github:tlamadon/ssh-secret-broker";
+
+  # in a host's modules:
+  imports = [ inputs.ssh-secret-broker.nixosModules.client ];
+
+  services.secretBrokerClient = {
+    host = "broker.example.net";
+    hostPublicKey = "ssh-ed25519 AAAA...";    # the broker's host_key.pub, pinned
+    vault = "prod";
+    files.caddy-cloudflare = {
+      path = "/var/lib/caddy-secrets/cloudflare.env";
+      env.CF_API_TOKEN = "caddy-cloudflare/password";   # <item>/<field>
+      units = [ "caddy.service" ];
+    };
+  };
+}
+```
+
+`env` writes `KEY=value` lines; `value = "<item>/<field>"` writes the bare value
+as the whole file. Each file gets a unit, `secret-broker-fetch-<name>`, that
+runs before the listed units start and again every hour (`refresh`).
+
+- **Content changed:** the file is replaced atomically and the listed units are
+  restarted. Rotating a secret is editing the item.
+- **Fetch failed** (broker or backend unreachable, item missing or out of scope,
+  empty value): the file is left exactly as it was and the fetch unit fails. The
+  consumers start anyway, on the last good copy. The broker caches nothing, so
+  this fallback is what covers an outage; write to persistent storage, not
+  `/run`.
+- **Multi-line values** are refused for `env` files and allowed for `value`.
+
+Values are written unquoted. That suits tokens; a value with quotes, backslashes
+or leading and trailing spaces is read differently by systemd's
+`EnvironmentFile` and docker's `env_file`.
+
+The work is done by [`nix/fetch.sh`](nix/fetch.sh), also exported as the
+`secret-broker-fetch` package for use outside NixOS.
+
 ## Audit log
 
 One JSON line per request on stdout; operational messages go to stderr.
@@ -114,6 +161,7 @@ rule; denials and errors carry a `reason`. Rejected keys are logged with
 
 ```sh
 go test -race ./...
+nix flake check        # shellcheck, the fetch script against a stubbed broker, the module
 ```
 
 The tests use an in-memory store, including an end-to-end test over a real SSH
