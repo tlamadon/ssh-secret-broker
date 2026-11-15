@@ -108,9 +108,11 @@ runs before the listed units start and again every hour (`refresh`).
   `/run`.
 - **Retries:** a failed fetch is started again by systemd, five starts thirty
   seconds apart, which covers a broker being upgraded or a host still booting.
-  After that the unit stays failed until the next timer run. To fetch by hand
-  once the cause is fixed: `systemctl reset-failed secret-broker-fetch-<name>`,
-  then `systemctl start` it.
+  After that the unit stays failed until the next timer run. A refusal is not
+  retried at all: a key the broker does not accept, a broker host key that is
+  not the pinned one, or an item that is missing or out of scope. To fetch by
+  hand once the cause is fixed: `systemctl reset-failed
+  secret-broker-fetch-<name>`, then `systemctl start` it.
 - **Multi-line values** are refused for `env` files and allowed for `value`.
 
 Values are written unquoted. That suits tokens; a value with quotes, backslashes

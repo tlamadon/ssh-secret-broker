@@ -19,7 +19,7 @@
 # fetch in with Wants=, not Requires=, so they start on the last good copy and
 # the failed fetch unit is what reports the problem.
 
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, utils, ... }:
 
 let
   cfg = config.services.secretBrokerClient;
@@ -178,7 +178,12 @@ in
         Type = "oneshot";
         Restart = "on-failure";
         RestartSec = "30s";
-        ExecStart = lib.escapeShellArgs ([
+        # A refusal (key not whitelisted, wrong host key, item out of scope) is
+        # the same thirty seconds later; see the exit statuses in fetch.sh.
+        RestartPreventExitStatus = 78;
+        # systemd's quoting, not the shell's: it also neutralises the % and $
+        # that systemd would otherwise expand in a path or an item name.
+        ExecStart = utils.escapeSystemdExecArgs ([
           (lib.getExe fetch)
           f.path f.owner f.group f.mode
           (lib.concatStringsSep " " f.units)
