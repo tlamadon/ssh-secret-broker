@@ -19,13 +19,15 @@ case "$MODE" in
   ok) printf '%s' "${VAL:-tok-1}" ;;
   deny) echo "not found or not permitted" >&2; exit 1 ;;
   backend) exit 2 ;;
-  down) exit 255 ;;
+  down) echo "ssh: connect to host broker.test port 2222: Connection refused" >&2; exit 255 ;;
+  rejected) echo "broker@broker.test: Permission denied (publickey)." >&2; exit 255 ;;
+  hostkey) echo "Host key verification failed." >&2; exit 255 ;;
   empty) exit 0 ;;
   multi) printf 'a\nb' ;;
   flaky)
     n=$(cat "$T/n" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$T/n"
-    [ "$n" -lt 2 ] && exit 255
+    [ "$n" -lt 2 ] && { echo "ssh: connect to host broker.test port 2222: Connection refused" >&2; exit 255; }
     printf tok-flaky ;;
   second-fails) case "$ref" in */b/*) exit 2 ;; *) printf good ;; esac ;;
 esac
@@ -100,6 +102,15 @@ run down "a.service" CF=item/password
 check "unreachable broker keeps the old file" 1 "CF=tok-2|"
 expect "unreachable broker is retried six times" "$(count '^ssh')" 6
 expect "no restart on failure" "$(count systemctl)" 0
+
+run rejected "a.service" CF=item/password
+check "rejected key keeps the old file" 1 "CF=tok-2|"
+expect "rejected key is not retried" "$(count '^ssh')" 1
+expect "ssh's own message is passed on" "$(grep -c 'Permission denied' "$T/log")" 1
+
+run hostkey "a.service" CF=item/password
+check "host key mismatch keeps the old file" 1 "CF=tok-2|"
+expect "host key mismatch is not retried" "$(count '^ssh')" 1
 
 run empty "a.service" CF=item/password
 check "empty value keeps the old file" 1 "CF=tok-2|"

@@ -19,7 +19,7 @@
 # fetch in with Wants=, not Requires=, so they start on the last good copy and
 # the failed fetch unit is what reports the problem.
 
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, utils, ... }:
 
 let
   cfg = config.services.secretBrokerClient;
@@ -161,7 +161,9 @@ in
 
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = lib.escapeShellArgs ([
+        # systemd's quoting, not the shell's: it also neutralises the % and $
+        # that systemd would otherwise expand in a path or an item name.
+        ExecStart = utils.escapeSystemdExecArgs ([
           (lib.getExe fetch)
           f.path f.owner f.group f.mode
           (lib.concatStringsSep " " f.units)

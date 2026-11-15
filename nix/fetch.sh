@@ -43,25 +43,32 @@ read_value() {
     "broker@$host" read "$vault/$1"
 }
 
-# ssh exits 255 when it could not connect at all, which is what a broker still
-# starting at boot looks like. Only that is worth waiting for: a denial (1) or a
-# backend error (2) will not change in ten seconds.
+# ssh exits 255 for every failure of its own. A broker still starting at boot
+# looks like that and is worth waiting for. A rejected key or a host key
+# mismatch looks like that too, and will not change in ten seconds: retrying
+# those only delays the failure and fills the broker's audit log with denials.
+# A denial (1) or a backend error (2) from the broker is never retried.
 read_retrying() {
   local n=0 rc
   while true; do
     rc=0
-    read_value "$1" || rc=$?
+    read_value "$1" 2> "$err" || rc=$?
+    cat "$err" >&2
     n=$((n + 1))
     if [ "$rc" -ne 255 ] || [ "$n" -ge 6 ]; then
       return "$rc"
     fi
+    case $(< "$err") in
+      *"Permission denied"* | *"Host key verification failed"*) return "$rc" ;;
+    esac
     sleep 2
   done
 }
 
 mkdir -p "$(dirname "$path")"
 tmp=$(mktemp "$path.XXXXXX")
-trap 'rm -f "$tmp"' EXIT
+err=$(mktemp) # ssh's stderr for the attempt in progress; never holds a value
+trap 'rm -f "$tmp" "$err"' EXIT
 chmod 0600 "$tmp"
 
 for spec in "$@"; do

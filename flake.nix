@@ -18,7 +18,7 @@
 
       checks = forAllSystems (pkgs: {
         # Building it runs shellcheck over fetch.sh.
-        fetch = self.packages.${pkgs.system}.secret-broker-fetch;
+        fetch = self.packages.${pkgs.stdenv.hostPlatform.system}.secret-broker-fetch;
 
         # The script's behaviour against a stubbed broker, the failure paths
         # above all.
@@ -34,7 +34,7 @@
         module =
           let
             sys = nixpkgs.lib.nixosSystem {
-              inherit (pkgs) system;
+              inherit (pkgs.stdenv.hostPlatform) system;
               modules = [
                 self.nixosModules.client
                 {
@@ -51,6 +51,10 @@
                       path = "/var/lib/example/password";
                       value = "example/password";
                     };
+                    files.odd-names = {
+                      path = "/var/lib/example/100%.env";
+                      env.TOKEN = "pa$$word %n/pass word";
+                    };
                   };
                   fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
                   boot.loader.grub.enable = false;
@@ -60,11 +64,19 @@
             };
             units = sys.config.systemd.units;
           in
-          pkgs.linkFarm "secret-broker-client-units" [
-            { name = "env-file.service"; path = units."secret-broker-fetch-env-file.service".unit; }
-            { name = "env-file.timer"; path = units."secret-broker-fetch-env-file.timer".unit; }
-            { name = "bare.service"; path = units."secret-broker-fetch-bare.service".unit; }
-          ];
+          pkgs.runCommand "secret-broker-client-units" { } ''
+            mkdir $out
+            ln -s ${units."secret-broker-fetch-env-file.service".unit} $out/env-file.service
+            ln -s ${units."secret-broker-fetch-env-file.timer".unit} $out/env-file.timer
+            ln -s ${units."secret-broker-fetch-bare.service".unit} $out/bare.service
+            ln -s ${units."secret-broker-fetch-odd-names.service".unit} $out/odd-names.service
+
+            # % and $ reach the script literally: systemd must not expand them.
+            exec_start=$(grep '^ExecStart=' $out/odd-names.service/*.service)
+            echo "$exec_start"
+            [[ $exec_start == *'"/var/lib/example/100%%.env"'* ]]
+            [[ $exec_start == *'"TOKEN=pa$$$$word %%n/pass word"'* ]]
+          '';
       });
     };
 }
