@@ -18,7 +18,7 @@
 
       checks = forAllSystems (pkgs: {
         # Building it runs shellcheck over fetch.sh.
-        fetch = self.packages.${pkgs.system}.secret-broker-fetch;
+        fetch = self.packages.${pkgs.stdenv.hostPlatform.system}.secret-broker-fetch;
 
         # The script's behaviour against a stubbed broker, the failure paths
         # above all.
@@ -34,7 +34,7 @@
         module =
           let
             sys = nixpkgs.lib.nixosSystem {
-              inherit (pkgs) system;
+              inherit (pkgs.stdenv.hostPlatform) system;
               modules = [
                 self.nixosModules.client
                 {
@@ -60,11 +60,22 @@
             };
             units = sys.config.systemd.units;
           in
-          pkgs.linkFarm "secret-broker-client-units" [
-            { name = "env-file.service"; path = units."secret-broker-fetch-env-file.service".unit; }
-            { name = "env-file.timer"; path = units."secret-broker-fetch-env-file.timer".unit; }
-            { name = "bare.service"; path = units."secret-broker-fetch-bare.service".unit; }
-          ];
+          pkgs.runCommand "secret-broker-client-units" { } ''
+            unit=${units."secret-broker-fetch-env-file.service".unit}/secret-broker-fetch-env-file.service
+            timer=${units."secret-broker-fetch-env-file.timer".unit}/secret-broker-fetch-env-file.timer
+            bare=${units."secret-broker-fetch-bare.service".unit}/secret-broker-fetch-bare.service
+            want() { grep -qxF -- "$2" "$1" || { echo "$1: missing line: $2"; cat "$1"; exit 1; }; }
+            want "$unit" "Type=oneshot"
+            want "$unit" "Before=example.service"
+            want "$unit" "Restart=on-failure"
+            want "$unit" "RestartSec=30s"
+            want "$unit" "StartLimitBurst=5"
+            want "$unit" "StartLimitIntervalSec=300"
+            want "$timer" "OnCalendar=hourly"
+            want "$bare" "Restart=on-failure"
+            grep -q "'=example/password'" "$bare" || { echo "bare unit does not pass a bare spec"; cat "$bare"; exit 1; }
+            touch $out
+          '';
       });
     };
 }
