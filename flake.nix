@@ -65,17 +65,28 @@
             units = sys.config.systemd.units;
           in
           pkgs.runCommand "secret-broker-client-units" { } ''
-            mkdir $out
-            ln -s ${units."secret-broker-fetch-env-file.service".unit} $out/env-file.service
-            ln -s ${units."secret-broker-fetch-env-file.timer".unit} $out/env-file.timer
-            ln -s ${units."secret-broker-fetch-bare.service".unit} $out/bare.service
-            ln -s ${units."secret-broker-fetch-odd-names.service".unit} $out/odd-names.service
+            unit=${units."secret-broker-fetch-env-file.service".unit}/secret-broker-fetch-env-file.service
+            timer=${units."secret-broker-fetch-env-file.timer".unit}/secret-broker-fetch-env-file.timer
+            bare=${units."secret-broker-fetch-bare.service".unit}/secret-broker-fetch-bare.service
+            odd=${units."secret-broker-fetch-odd-names.service".unit}/secret-broker-fetch-odd-names.service
+            want() { grep -qxF -- "$2" "$1" || { echo "$1: missing line: $2"; cat "$1"; exit 1; }; }
+            want "$unit" "Type=oneshot"
+            want "$unit" "Before=example.service"
+            want "$unit" "Restart=on-failure"
+            want "$unit" "RestartSec=30s"
+            want "$unit" "RestartPreventExitStatus=78"
+            want "$unit" "StartLimitBurst=5"
+            want "$unit" "StartLimitIntervalSec=300"
+            want "$timer" "OnCalendar=hourly"
+            want "$bare" "Restart=on-failure"
+            grep -qF '"=example/password"' "$bare" || { echo "bare unit does not pass a bare spec"; cat "$bare"; exit 1; }
 
             # % and $ reach the script literally: systemd must not expand them.
-            exec_start=$(grep '^ExecStart=' $out/odd-names.service/*.service)
+            exec_start=$(grep '^ExecStart=' "$odd")
             echo "$exec_start"
             [[ $exec_start == *'"/var/lib/example/100%%.env"'* ]]
             [[ $exec_start == *'"TOKEN=pa$$$$word %%n/pass word"'* ]]
+            touch $out
           '';
       });
     };

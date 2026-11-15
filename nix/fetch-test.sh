@@ -91,7 +91,7 @@ check "rotated value replaces the file" 0 "CF=tok-2|"
 expect "every unit restarted on change" "$(count 'systemctl try-restart --no-block')" 2
 
 run deny "a.service" CF=item/password
-check "denial keeps the old file" 1 "CF=tok-2|"
+check "denial keeps the old file" 78 "CF=tok-2|"
 expect "denial is not retried" "$(count '^ssh')" 1
 
 run backend "a.service" CF=item/password
@@ -104,12 +104,12 @@ expect "unreachable broker is retried six times" "$(count '^ssh')" 6
 expect "no restart on failure" "$(count systemctl)" 0
 
 run rejected "a.service" CF=item/password
-check "rejected key keeps the old file" 1 "CF=tok-2|"
+check "rejected key keeps the old file" 78 "CF=tok-2|"
 expect "rejected key is not retried" "$(count '^ssh')" 1
 expect "ssh's own message is passed on" "$(grep -c 'Permission denied' "$T/log")" 1
 
 run hostkey "a.service" CF=item/password
-check "host key mismatch keeps the old file" 1 "CF=tok-2|"
+check "host key mismatch keeps the old file" 78 "CF=tok-2|"
 expect "host key mismatch is not retried" "$(count '^ssh')" 1
 
 run empty "a.service" CF=item/password

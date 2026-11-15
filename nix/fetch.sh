@@ -17,7 +17,12 @@
 # The one rule: a failed fetch never costs a working secret. The new content is
 # built in a temp file next to the target and moved into place only when every
 # value was read. On any failure the target is left exactly as it was and the
-# exit status is non-zero.
+# exit status is non-zero:
+#   1   a failure that may pass: broker unreachable, backend error, bad value
+#   78  a refusal, which trying again will not change: this host's key is not
+#       accepted, the broker's host key is not the pinned one, or the item is
+#       missing or out of scope. The NixOS unit does not restart on it.
+#   64  usage
 
 if [ "$#" -lt 6 ]; then
   echo "usage: secret-broker-fetch <path> <owner> <group> <mode> <units> <spec>..." >&2
@@ -58,11 +63,19 @@ read_retrying() {
     if [ "$rc" -ne 255 ] || [ "$n" -ge 6 ]; then
       return "$rc"
     fi
-    case $(< "$err") in
-      *"Permission denied"* | *"Host key verification failed"*) return "$rc" ;;
-    esac
+    if ssh_refused; then
+      return "$rc"
+    fi
     sleep 2
   done
+}
+
+# Whether the last ssh attempt failed on the keys rather than the connection.
+ssh_refused() {
+  case $(< "$err") in
+    *"Permission denied"* | *"Host key verification failed"*) return 0 ;;
+  esac
+  return 1
 }
 
 mkdir -p "$(dirname "$path")"
@@ -74,8 +87,14 @@ chmod 0600 "$tmp"
 for spec in "$@"; do
   key=${spec%%=*}
   ref=${spec#*=}
-  if ! value=$(read_retrying "$ref"); then
+  rc=0
+  value=$(read_retrying "$ref") || rc=$?
+  if [ "$rc" -ne 0 ]; then
     echo "secret-broker: could not read $ref; $path left as it was" >&2
+    # The broker answers 1 for "not found or not permitted".
+    if [ "$rc" -eq 1 ] || { [ "$rc" -eq 255 ] && ssh_refused; }; then
+      exit 78
+    fi
     exit 1
   fi
   if [ -z "$value" ]; then

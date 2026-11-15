@@ -159,8 +159,28 @@ in
         SECRET_BROKER_IDENTITY = toString cfg.identityFile;
       };
 
+      # A fetch that fails is tried again by systemd rather than by waiting
+      # longer in the script. The script only waits about ten seconds for a
+      # broker that is not listening, because the consumers are ordered after
+      # this unit and a longer wait would hold up their start whenever the
+      # broker is really down. A failed attempt releases them at once, onto the
+      # last good copy, and the retries then happen behind their back: five
+      # starts, thirty seconds apart, which covers a broker being upgraded or a
+      # host still booting. After that the unit stays failed, so an outage shows
+      # up in `systemctl --failed`, until the next timer run.
+      #
+      # The interval has to stay well under the refresh period: while the limit
+      # is in force every start is refused, the timer's included.
+      startLimitIntervalSec = 300;
+      startLimitBurst = 5;
+
       serviceConfig = {
         Type = "oneshot";
+        Restart = "on-failure";
+        RestartSec = "30s";
+        # A refusal (key not whitelisted, wrong host key, item out of scope) is
+        # the same thirty seconds later; see the exit statuses in fetch.sh.
+        RestartPreventExitStatus = 78;
         # systemd's quoting, not the shell's: it also neutralises the % and $
         # that systemd would otherwise expand in a path or an item name.
         ExecStart = utils.escapeSystemdExecArgs ([
