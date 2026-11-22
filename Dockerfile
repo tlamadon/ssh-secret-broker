@@ -11,6 +11,6 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /ssh-secret-broker /ssh-secret-broker
-EXPOSE 2222
+EXPOSE 2222 8443
 ENTRYPOINT ["/ssh-secret-broker"]
 CMD ["-config", "/etc/ssh-secret-broker/config.yaml"]

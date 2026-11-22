@@ -21,3 +21,21 @@ rules:
     vault: prod
     tags: [deploy, db]
     access: [list, read, write]
+  # Principals from an HTTP token (see the http block): its subject, and role:<role>.
+  - principals: ["role:secrets-reader"]
+    vault: prod
+    tags: [deploy]
+    access: [list, read]
+
+# Optional: accept voussh HTTP credentials on a second listener. Remove the
+# block to serve SSH only.
+http:
+  listen: ":8443"
+  origin: "https://broker.example.net:8443"   # exactly what clients put in the URL
+  issuer: "https://auth.example.com"          # voussh's jwt.issuer
+  audience: "secret-broker"                   # this broker's name under voussh's jwt.audiences
+  jwks: /etc/ssh-secret-broker/voussh-jwks.json   # from `voussh jwks`
+  # Optional pair: terminate TLS here. Without it the broker speaks plain HTTP,
+  # for use behind a reverse proxy or on a private network.
+  tls_cert: /run/secrets/tls.crt
+  tls_key: /run/secrets/tls.key

@@ -2,7 +2,9 @@
 
 A minimal, stateless SSH server that brokers access to 1Password. Clients
 authenticate with an SSH certificate or a whitelisted key; a config file maps
-their principals to tagged items in a vault.
+their principals to tagged items in a vault. An optional HTTP listener accepts
+short-lived [voussh](https://github.com/tlamadon/voussh) tokens instead, for
+clients with no SSH key: see [HTTP access](#http-access-with-voussh-tokens).
 
 ```sh
 ssh -p 2222 broker list prod                              # item titles, one per line
@@ -18,7 +20,7 @@ Exit status: `0` ok, `1` not found or not permitted (deliberately the same),
 1. **Who.** A user certificate signed by one of `trusted_cas` yields the
    certificate's principals. A plain key listed in `whitelist` yields the
    principals configured there. Anything else is rejected. The SSH username is
-   ignored.
+   ignored. Over HTTP, a verified token yields its subject and `role:<role>`.
 2. **What.** A request is allowed if some rule matches one of the caller's
    principals, the vault, the verb (`list`, `read`, `write`) and at least one
    tag of the item. No match means denied. Items without tags are unreachable.
@@ -67,6 +69,75 @@ ssh-keygen -s ca -I alice@laptop -n ops,ci-deploy -V +8h -z 1 \
 `-n` sets the principals, `-I` and `-z` (key ID and serial) appear in the audit
 log, `-O source-address` is optional and enforced. Certificates carrying any
 other critical option, such as `force-command`, are rejected.
+
+## HTTP access with voussh tokens
+
+For a session that should not need an SSH key: voussh's device flow shows a
+code, you approve it in a browser on any machine, and the session holds a token
+for a few minutes.
+
+```sh
+eval "$(vsh init)"      # once per shell: lets --local hand the token to this shell
+vsh token login --local --device --server https://auth.example.com --audience secret-broker
+vsh http https://broker.example.net:8443/v1/prod                    # list
+vsh http https://broker.example.net:8443/v1/prod/api/password       # read
+echo -n "$NEW" | vsh http -X PUT -d @- https://broker.example.net:8443/v1/prod/api/password
+```
+
+Enable it with an `http` block; without one there is no HTTP listener.
+
+```yaml
+http:
+  listen: ":8443"
+  origin: "https://broker.example.net:8443"  # exactly what clients put in the URL
+  issuer: "https://auth.example.com"         # voussh's jwt.issuer
+  audience: "secret-broker"                  # this broker's name under voussh's jwt.audiences
+  jwks: /etc/ssh-secret-broker/voussh-jwks.json   # from `voussh jwks`
+  tls_cert: /run/secrets/tls.crt             # optional pair: the broker terminates TLS
+  tls_key: /run/secrets/tls.key
+```
+
+The token is an EdDSA JWT bound to the client's key: every request also carries
+a DPoP proof signed by that key, for that method and URL, usable once. The
+broker checks all of it offline against the pinned `jwks` file and never calls
+voussh.
+
+A token becomes two principals, the subject and the role, which rules name like
+any other:
+
+```yaml
+rules:
+  - {principals: ["role:secrets-reader"], vault: prod, tags: [deploy], access: [list, read]}
+  - {principals: ["alice@example.com"], vault: prod, tags: [db], access: [list, read, write]}
+  - {principals: ["service:ci-runner"], vault: prod, tags: [deploy], access: [read]}
+```
+
+| Request | Does | Success |
+|---|---|---|
+| `GET /v1/<vault>` | list | 200, titles one per line |
+| `GET /v1/<vault>/<item>/<field>` | read | 200, the raw value |
+| `PUT /v1/<vault>/<item>/<field>` | write, value in the body | 204 |
+
+`401` for any authentication failure, with the reason only in the audit log;
+`404` for not found and for not permitted alike; `400` usage; `502` backend
+error.
+
+- **Without `tls_cert`** the broker speaks plain HTTP, for use behind a reverse
+  proxy or on a private network. Values then cross that link unencrypted, and
+  the audit log's `remote` is the proxy's address: forwarding headers are not
+  trusted.
+- **`origin` must match the client's URL** (scheme, host, port), or every proof
+  is rejected.
+- **Principals share one namespace with SSH.** A certificate or whitelist entry
+  carrying the principal `role:deploy` matches the same rules as a token with
+  that role. Both come from configuration you control; keep it in mind when
+  naming principals.
+- **`--local` keeps the token and its key in the shell's environment**, with
+  nothing on disk, until the shell exits (voussh 0.3.2 or later). Without it
+  `vsh` stores both in files under `~/.config/voussh`. Either way the token
+  expires on its own.
+- **Several replicas** each keep their own replay cache, so a captured proof
+  could be replayed once per replica within its sixty seconds.
 
 ## NixOS client
 
@@ -128,19 +199,23 @@ One JSON line per request on stdout; operational messages go to stderr.
 
 ```json
 {"time":"2026-11-14T17:38:52Z","level":"INFO","msg":"access","remote":"10.1.2.3:46900",
- "fingerprint":"SHA256:2UoF...","cert_key_id":"alice@laptop","cert_serial":9,
- "principals":["ops"],"verb":"read","vault":"prod","item":"api","field":"password",
- "decision":"allow","rule":0,"duration_ms":212}
+ "auth":"ssh","fingerprint":"SHA256:2UoF...","cert_key_id":"alice@laptop","cert_serial":9,
+ "subject":"","token_id":"","principals":["ops"],"verb":"read","vault":"prod","item":"api",
+ "field":"password","decision":"allow","rule":0,"duration_ms":212}
 ```
 
 `decision` is `allow`, `deny` or `error`; `rule` is the index of the matching
-rule; denials and errors carry a `reason`. Rejected keys are logged with
-`"msg":"auth"`. Secret values and the token are never logged.
+rule; denials and errors carry a `reason`. `auth` is `ssh` or `jwt`. For a
+token, `subject` and `token_id` are its `sub` and `jti`, and `fingerprint` is
+the thumbprint of the key it is bound to. Rejected keys and rejected tokens are
+logged with `"msg":"auth"`. Secret values, tokens and the service account token
+are never logged.
 
 ## Details and limits
 
 - Items are addressed by title and fields by ID or label. `/` separates the
-  path, so titles and field names containing `/` are not addressable.
+  path, so titles and field names containing `/` are not addressable over SSH;
+  over HTTP, write the `/` as `%2F`.
 - If several items in the caller's scope share a title, the request fails
   rather than picking one.
 - `write` drops one trailing newline from stdin and accepts up to 64 KiB. New
@@ -157,7 +232,11 @@ rule; denials and errors carry a `reason`. Rejected keys are logged with
 - The broker holds a token that can read everything the service account can.
   Compromise of the broker host is compromise of those vaults: scope the
   account narrowly.
-- The CA key mints identities. Whoever holds it can claim any principal.
+- The CA key mints identities. Whoever holds it can claim any principal. With
+  an `http` block the same goes for voussh's token signing key, and for whoever
+  can change the pinned `jwks` file.
+- A token cannot be revoked before it expires. It is useless without the
+  client's key, so keep voussh's `jwt.validity` short.
 - Anyone who can edit tags in 1Password directly can move items in and out of
   scopes; the broker only guarantees that its own clients cannot.
 - Clients must verify the broker's host key (`known_hosts`), otherwise a

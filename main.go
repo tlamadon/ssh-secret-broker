@@ -55,10 +55,25 @@ func run(configPath string) error {
 		return err
 	}
 	audit := slog.New(slog.NewJSONHandler(os.Stdout, nil)) // audit on stdout, operational logs on stderr
+	broker := &Broker{cfg: cfg, store: store, audit: audit}
+
+	httpDone := make(chan error, 1)
+	if cfg.HTTP != nil {
+		srv, hln, err := newHTTPServer(cfg.HTTP, broker)
+		if err != nil {
+			return err
+		}
+		log.Printf("listening on %s for %s (audience %q, TLS %t)", hln.Addr(), cfg.HTTP.Origin, cfg.HTTP.Audience, srv.TLSConfig != nil)
+		go func() { httpDone <- serveHTTP(ctx, srv, hln) }()
+	} else {
+		httpDone <- nil
+	}
+
 	log.Printf("listening on %s, host key %s", ln.Addr(), ssh.FingerprintSHA256(hostKey.PublicKey()))
-	serve(ctx, ln, newServerConfig(cfg, hostKey, audit), &Broker{cfg: cfg, store: store, audit: audit})
+	serve(ctx, ln, newServerConfig(cfg, hostKey, audit), broker)
+	err = <-httpDone
 	log.Print("shut down")
-	return nil
+	return err
 }
 
 func serviceAccountToken() (string, error) {
