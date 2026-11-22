@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -33,9 +34,40 @@ type Config struct {
 		Principals  []string `yaml:"principals"`
 	} `yaml:"whitelist"`
 	Rules []Rule `yaml:"rules"`
+	HTTP  *HTTP  `yaml:"http"`
 
 	cas  [][]byte            // wire encoding of each trusted CA key
 	keys map[string][]string // SHA256 fingerprint -> principals
+}
+
+// HTTP enables the second listener, which accepts voussh HTTP credentials
+// (an EdDSA JWT bound to the client's key by a DPoP proof).
+type HTTP struct {
+	Listen   string `yaml:"listen"`
+	Origin   string `yaml:"origin"`   // scheme://host[:port] clients address the broker by
+	Issuer   string `yaml:"issuer"`   // voussh's jwt.issuer
+	Audience string `yaml:"audience"` // this broker's audience name at voussh
+	JWKS     string `yaml:"jwks"`     // file with voussh's public verification keys
+	TLSCert  string `yaml:"tls_cert"` // optional, with tls_key: terminate TLS here
+	TLSKey   string `yaml:"tls_key"`
+}
+
+func (h *HTTP) validate() error {
+	if h.Listen == "" || h.Origin == "" || h.Issuer == "" || h.Audience == "" || h.JWKS == "" {
+		return errors.New("http: listen, origin, issuer, audience and jwks are all required")
+	}
+	u, err := url.Parse(h.Origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return errors.New("http: origin must be scheme://host[:port] and nothing else")
+	}
+	if (h.TLSCert == "") != (h.TLSKey == "") {
+		return errors.New("http: set tls_cert and tls_key together")
+	}
+	if h.TLSCert != "" && u.Scheme != "https" {
+		return errors.New("http: origin must be https when the broker terminates TLS")
+	}
+	return nil
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -56,8 +88,13 @@ func parseConfig(data []byte) (*Config, error) {
 	if c.HostKey == "" {
 		return nil, errors.New("host_key is required")
 	}
-	if len(c.TrustedCAs) == 0 && len(c.Whitelist) == 0 {
-		return nil, errors.New("need at least one of trusted_cas or whitelist")
+	if len(c.TrustedCAs) == 0 && len(c.Whitelist) == 0 && c.HTTP == nil {
+		return nil, errors.New("need at least one of trusted_cas, whitelist or http")
+	}
+	if c.HTTP != nil {
+		if err := c.HTTP.validate(); err != nil {
+			return nil, err
+		}
 	}
 	for i, line := range c.TrustedCAs {
 		ca, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
@@ -130,13 +167,16 @@ func (c *Config) covering(rules []int, tags []string) int {
 	return -1
 }
 
-// Caller is an authenticated client. It travels from the SSH handshake to the
-// session handler JSON-encoded in ssh.Permissions.
+// Caller is an authenticated client. An SSH caller travels from the handshake
+// to the session handler JSON-encoded in ssh.Permissions.
 type Caller struct {
-	Principals  []string `json:"principals"`
-	Fingerprint string   `json:"fingerprint"`
+	Auth        string   `json:"auth"`        // "ssh" or "jwt"
+	Principals  []string `json:"principals"`  // what the rules are matched against
+	Fingerprint string   `json:"fingerprint"` // SSH key fingerprint, or the token's key thumbprint
 	KeyID       string   `json:"key_id,omitempty"`
 	Serial      uint64   `json:"serial,omitempty"`
+	Subject     string   `json:"subject,omitempty"`  // token "sub"
+	TokenID     string   `json:"token_id,omitempty"` // token "jti"
 }
 
 const callerExt = "caller"
@@ -146,7 +186,7 @@ const callerExt = "caller"
 // source-address critical option returned in the permissions.
 func (c *Config) authenticate(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	perms := &ssh.Permissions{}
-	caller := Caller{Fingerprint: ssh.FingerprintSHA256(key)}
+	caller := Caller{Auth: "ssh", Fingerprint: ssh.FingerprintSHA256(key)}
 	if cert, ok := key.(*ssh.Certificate); ok {
 		caller.Fingerprint = ssh.FingerprintSHA256(cert.Key)
 		if cert.CertType != ssh.UserCert {

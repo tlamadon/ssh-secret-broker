@@ -74,8 +74,14 @@ func parse(cmd string) (request, error) {
 // Handle runs one command for an authenticated caller, writes the audit
 // record, and returns what to send back: stdout, exit status, stderr message.
 func (b *Broker) Handle(ctx context.Context, c Caller, remote, cmd string, stdin io.Reader) (string, int, string) {
-	start := time.Now()
 	req, err := parse(cmd)
+	return b.do(ctx, c, remote, req, err, stdin)
+}
+
+// do is Handle for a request that is already parsed; err is the parse error,
+// if any, so that it is audited like every other outcome.
+func (b *Broker) do(ctx context.Context, c Caller, remote string, req request, err error, stdin io.Reader) (string, int, string) {
+	start := time.Now()
 	out, rule := "", -1
 	if err == nil {
 		out, rule, err = b.run(ctx, c, req, stdin)
@@ -94,9 +100,12 @@ func (b *Broker) Handle(ctx context.Context, c Caller, remote, cmd string, stdin
 	}
 	attrs := []slog.Attr{
 		slog.String("remote", remote),
+		slog.String("auth", c.Auth),
 		slog.String("fingerprint", c.Fingerprint),
 		slog.String("cert_key_id", c.KeyID),
 		slog.Uint64("cert_serial", c.Serial),
+		slog.String("subject", c.Subject),
+		slog.String("token_id", c.TokenID),
 		slog.Any("principals", c.Principals),
 		slog.String("verb", req.verb),
 		slog.String("vault", req.vault),
