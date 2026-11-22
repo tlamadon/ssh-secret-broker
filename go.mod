@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.1
-	github.com/voussh/voussh v0.0.0-00010101000000-000000000000
+	github.com/tlamadon/voussh v0.3.2
 	golang.org/x/crypto v0.59.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -21,5 +21,3 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/voussh/voussh => github.com/tlamadon/voussh v0.3.1

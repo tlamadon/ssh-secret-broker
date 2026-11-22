@@ -22,8 +22,8 @@ github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 h1:ZF+QBjOI+tILZ
 github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834/go.mod h1:m9ymHTgNSEjuxvw8E7WWe4Pl4hZQHXONY8wE6dMLaRk=
 github.com/tetratelabs/wazero v1.11.0 h1:+gKemEuKCTevU4d7ZTzlsvgd1uaToIDtlQlmNbwqYhA=
 github.com/tetratelabs/wazero v1.11.0/go.mod h1:eV28rsN8Q+xwjogd7f4/Pp4xFxO7uOGbLcD/LzB1wiU=
-github.com/tlamadon/voussh v0.3.1 h1:ivTo4njAH9GED8fsaW9QzR2+apkW2wIrYlEe36+IUuM=
-github.com/tlamadon/voussh v0.3.1/go.mod h1:JQuP5RAzwqhQXtQGzPPQ/GQwidJk0htUmQkzZXhyPZo=
+github.com/tlamadon/voussh v0.3.2 h1:jDLscEto86PTb248RRLRIIe+Qs3+GCNx+scteZtmYRo=
+github.com/tlamadon/voussh v0.3.2/go.mod h1:wHDTri7g40eH0PDV3u0YE+724lqFtILahg5F+KE0UJc=
 go.opentelemetry.io/proto/otlp v1.9.0 h1:l706jCMITVouPOqEnii2fIAuO3IVGBRPV5ICjceRb/A=
 go.opentelemetry.io/proto/otlp v1.9.0/go.mod h1:xE+Cx5E/eEHw+ISFkwPLwCZefwVjY+pqKg1qcK03+/4=
 golang.org/x/crypto v0.59.0 h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c=

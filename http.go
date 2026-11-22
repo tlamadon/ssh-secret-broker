@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/voussh/voussh/httpcred"
+	"github.com/tlamadon/voussh/httpcred"
 )
 
 // newVerifier pins voussh's verification keys from a local file. Nothing is

@@ -77,7 +77,8 @@ code, you approve it in a browser on any machine, and the session holds a token
 for a few minutes.
 
 ```sh
-vsh token login --audience secret-broker --device
+eval "$(vsh init)"      # once per shell: lets --local hand the token to this shell
+vsh token login --local --device --server https://auth.example.com --audience secret-broker
 vsh http https://broker.example.net:8443/v1/prod                    # list
 vsh http https://broker.example.net:8443/v1/prod/api/password       # read
 echo -n "$NEW" | vsh http -X PUT -d @- https://broker.example.net:8443/v1/prod/api/password
@@ -131,8 +132,10 @@ error.
   carrying the principal `role:deploy` matches the same rules as a token with
   that role. Both come from configuration you control; keep it in mind when
   naming principals.
-- **`vsh` keeps its proof key and tokens in files** under `~/.config/voussh`.
-  The token expires on its own; the key alone opens nothing.
+- **`--local` keeps the token and its key in the shell's environment**, with
+  nothing on disk, until the shell exits (voussh 0.3.2 or later). Without it
+  `vsh` stores both in files under `~/.config/voussh`. Either way the token
+  expires on its own.
 - **Several replicas** each keep their own replay cache, so a captured proof
   could be replayed once per replica within its sixty seconds.
 
